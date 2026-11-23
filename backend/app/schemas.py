@@ -149,7 +149,7 @@ class CompanyProfile(BaseModel):
     forwardPE: float | None = None
     priceToBook: float | None = None
     taxonomyLabel: str | None = None
-    taxonomySource: str = "Yahoo Finance sector and industry. An official GICS code is not in the public feed."
+    taxonomySource: str | None = None
     gicsCode: str | None = None
     descriptionSource: str | None = None
     events: list[CompanyEvent] = Field(default_factory=list)

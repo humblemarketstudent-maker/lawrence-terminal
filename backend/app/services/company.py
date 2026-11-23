@@ -1,7 +1,7 @@
 """Live company-view fields that are not on the saved snapshot.
 
 Turnover, the calendar, and peer rows are built from public Yahoo payloads.
-Nothing here invents a GICS code, a peer, or an FX rate.
+Nothing here invents a peer or an FX rate.
 """
 
 from __future__ import annotations
@@ -15,10 +15,6 @@ from app.util import num
 
 # Quoted minor units. The price is divided by `divisor` before FX conversion.
 _MINOR = {"GBp": ("GBP", 100.0), "GBX": ("GBP", 100.0), "ZAc": ("ZAR", 100.0)}
-
-TAXONOMY_SOURCE = "Yahoo Finance sector and industry. An official GICS code is not in the public feed."
-DESCRIPTION_SOURCE = "Yahoo Finance business summary"
-
 
 @dataclass(frozen=True)
 class Turnover:

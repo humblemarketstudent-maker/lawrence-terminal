@@ -36,6 +36,7 @@ from app.services.filings import fetch_filings
 from app.services.macro import build_eco, build_wei, fetch_fred
 from app.services.news import fetch_news
 from app.services.company import peer_rows, upcoming_events
+from app.services.describe import company_description
 from app.services.normalize import option_from_dict, profile_from_parts, statements_from_blocks
 from app.symbols import WEI_SYMBOLS, bloomberg_label, equity_universe, normalize_symbol, search_catalog
 from app.util import iso
@@ -227,6 +228,8 @@ class Terminal:
             peers_status, peers_reason, peers_source = "unavailable", "Yahoo did not list peers for this symbol.", None
         event_payload = payload.get("events") or {}
         events = upcoming_events(event_payload.get("calendar"), event_payload.get("earnings"), datetime.now(timezone.utc).date())
+        description_name = info.get("longName") or info.get("shortName") or symbol
+        public_summary, public_source = company_description(str(description_name)) if isinstance(description_name, str) else (None, None)
         if events:
             events_status, events_reason = "ok", None
         else:
@@ -247,6 +250,8 @@ class Terminal:
             peers_status=peers_status,
             peers_reason=peers_reason,
             peers_source=peers_source,
+            public_summary=public_summary,
+            public_source=public_source,
         )
         if profile.marketCap and quote.marketCap is None:
             self.cache.set(f"q:{symbol}", quote.model_copy(update={"marketCap": profile.marketCap}), self.settings.cache_ttl_quotes)
