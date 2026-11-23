@@ -14,7 +14,7 @@ from app.schemas import (
     Quote,
     Statements,
 )
-from app.services.company import DESCRIPTION_SOURCE, TAXONOMY_SOURCE, Turnover, dollar_volume
+from app.services.company import Turnover, dollar_volume
 from app.symbols import bloomberg_label, classify, currency_for, name_for
 from app.util import clean_person, num
 
@@ -382,18 +382,20 @@ def profile_from_parts(
     peers_status: str | None = None,
     peers_reason: str | None = None,
     peers_source: str | None = None,
+    public_summary: str | None = None,
+    public_source: str | None = None,
 ) -> CompanyProfile:
     info = info or {}
     quote_type = str(info.get("quoteType") or "")
     asset = "future" if quote_type.upper() == "FUTURE" else classify(symbol, quote_type or None)
     currency = currency_for(symbol, info.get("currency") if isinstance(info.get("currency"), str) else None)
     name = name_for(symbol, info.get("longName") or info.get("shortName"))
-    summary = info.get("longBusinessSummary") if isinstance(info.get("longBusinessSummary"), str) else ""
     description_source = None
-    if summary:
-        summary = " ".join(summary.split())
-        description_source = DESCRIPTION_SOURCE
-    if not summary:
+    summary = ""
+    if public_summary:
+        summary = _clip_text(public_summary, 420)
+        description_source = public_source
+    if not summary and not sample:
         if asset == "etf":
             summary = f"{name} is an exchange-traded fund. Operating statements are not shown for the wrapper."
         elif asset == "index":
@@ -409,8 +411,10 @@ def profile_from_parts(
         elif asset == "rate":
             summary = "US Treasury yield index. The level is the yield in percent."
         else:
-            summary = "A full business description was not returned. Quote and market fields are shown where the provider has them."
-    summary = _clip_text(summary, 900)
+            summary = "A public description was not available."
+    elif not summary and sample:
+        summary = "A public description loads when the live feed answers."
+    summary = _clip_text(summary, 420)
     live_quote = quote is not None and not quote.sample and quote.price is not None
     if live_quote and quote is not None:
         price = quote.price
@@ -445,9 +449,6 @@ def profile_from_parts(
             usd_per_major=num(fx.get("usdPerMajor")) if fx else (1.0 if currency == "USD" else None),
             pair=str(fx.get("pair")) if fx.get("pair") else ("USD" if currency == "USD" else None),
         )
-    sector = info.get("sector") if isinstance(info.get("sector"), str) else None
-    industry = info.get("industry") if isinstance(info.get("industry"), str) else None
-    taxonomy = " · ".join(part for part in (sector, industry) if part) or None
     if events_status is None:
         if events:
             events_status = "ok"
@@ -504,8 +505,8 @@ def profile_from_parts(
         name=name,
         label=bloomberg_label(symbol),
         assetClass=asset,
-        sector=sector,
-        industry=industry,
+        sector=None,
+        industry=None,
         summary=summary,
         website=info.get("website") if isinstance(info.get("website"), str) else None,
         employees=int(employees) if isinstance(employees, (int, float)) else None,
@@ -531,8 +532,8 @@ def profile_from_parts(
         turnoverReason=turnover.reason,
         forwardPE=num(info.get("forwardPE")),
         priceToBook=num(info.get("priceToBook")),
-        taxonomyLabel=taxonomy,
-        taxonomySource=TAXONOMY_SOURCE,
+        taxonomyLabel=None,
+        taxonomySource=None,
         gicsCode=None,
         descriptionSource=description_source,
         events=events or [],

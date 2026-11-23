@@ -147,7 +147,7 @@ export interface CompanyProfile {
   forwardPE: number | null;
   priceToBook: number | null;
   taxonomyLabel: string | null;
-  taxonomySource: string;
+  taxonomySource: string | null;
   gicsCode: string | null;
   descriptionSource: string | null;
   events: CompanyEvent[];

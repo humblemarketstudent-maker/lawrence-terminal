@@ -122,16 +122,9 @@ export function TearSheet() {
             <Field label="Fwd P/E" value={profile.forwardPE == null ? "—" : `${profile.forwardPE.toFixed(2)}x`} />
             <Field label="P/B" value={profile.priceToBook == null ? "—" : `${profile.priceToBook.toFixed(2)}x`} />
           </div>
-          <div className="grid gap-2 text-[12px] md:grid-cols-2">
-            <div className="border border-border px-2 py-1.5" title={profile.eventsReason ?? ""}>
-              <div className="text-[9px] uppercase tracking-wide text-dim">Upcoming events</div>
-              <div className={profile.eventsStatus === "ok" ? "" : "text-amber"}>{events}</div>
-            </div>
-            <div className="border border-border px-2 py-1.5" title={profile.taxonomySource}>
-              <div className="text-[9px] uppercase tracking-wide text-dim">Classification</div>
-              <div>{profile.taxonomyLabel ?? "UNAVAILABLE"}</div>
-              <div className="text-[10px] text-dim">{profile.taxonomySource}</div>
-            </div>
+          <div className="border border-border px-2 py-1.5 text-[12px]" title={profile.eventsReason ?? ""}>
+            <div className="text-[9px] uppercase tracking-wide text-dim">Upcoming events</div>
+            <div className={profile.eventsStatus === "ok" ? "" : "text-amber"}>{events}</div>
           </div>
           <div>
             <p className="copy text-[13px] leading-relaxed text-foreground/90">{profile.summary}</p>

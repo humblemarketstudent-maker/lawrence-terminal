@@ -274,6 +274,16 @@ def download_quotes(symbols: list[str]) -> list[Quote]:
             quote = _quote_from_daily(symbol, daily)
             if quote is not None and quote.previousClose is None:
                 quote = _fill_thin_previous(symbol, quote)
+            if quote is None or quote.previousClose is None:
+                chart = quote_from_chart(symbol, _chart_result(symbol))
+                if quote is None:
+                    quote = chart
+                elif chart is not None and chart.previousClose:
+                    quote = quote.model_copy(update={
+                        "previousClose": chart.previousClose,
+                        "change": chart.change,
+                        "changePct": chart.changePct,
+                    })
             if quote:
                 quotes.append(quote)
     if futures:

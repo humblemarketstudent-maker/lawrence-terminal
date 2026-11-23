@@ -1,51 +1,30 @@
 """Market strip, equity movers, and G10 FX for the desk header.
 
-Equity benchmarks on the strip are futures, not cash indexes. Symbols were
-checked against live Yahoo data on 2026-11-23. A row with no working contract
-stays unavailable. Cash index tickers are not borrowed as a substitute, and a
-stale or inconsistent futures print is not shown.
+The strip is cash indexes, FX, and the US 2-year yield. Futures are not shown.
+Symbols below were checked against the Yahoo chart on 2026-11-23. TOPIX still
+has no working public cash symbol (^TPX, ^TOPIX, and 998405.T do not quote),
+so that row stays unavailable.
 
-The change on a futures row is last price minus Yahoo's previous close. On the
-contracts that quote, that previous close is the figure Yahoo itself uses for
-regularMarketChange (the conventional prior settlement/close for that listing).
+Change is versus the previous session. Thin histories such as CSI 300 use
+Yahoo's full-day change when the daily bars do not include a prior close.
 
-Verified futures
-- E-mini S&P: ES=F, CME, quoteType FUTURE, "E-Mini S&P 500 Dec 26".
-  Example print: 7085.5 vs previous close 6935.0, change +150.5.
-- E-mini NASDAQ 100: NQ=F, CME, "Nasdaq 100 Dec 26" (CME NQ is the E-mini).
-  Example print: 25859.25 vs 25126.5, change +732.75.
-- Nikkei 225: NIY=F, CME Nikkei/Yen continuous. Osaka's contract has no Yahoo
-  symbol. Example print: 56090 vs 54555, change +1535. SGX NK-Z26.SI quoted
-  the same level with a different previous close, so the strip uses the
-  continuous CME contract and its own previous close.
-- SGX MSCI Singapore: front month among SGP-{month}.SI by share volume.
-  On 2026-11-23 that was SGP-X26.SI (Nov, volume about 19k) over SGP-Z26.SI
-  (Dec). Example print: 441.4 vs 444.6.
-
-Checked and not used
-- Euro Stoxx, DAX, FTSE 100: no Yahoo futures symbol (FESX, FDAX, FFI/Z).
-- CSI 300 / 500 / 1000: no CFFEX futures symbol. Cash indexes are not used.
-- KOSPI 200, TWSE/TAIEX, KLCI, SET50, GIFT Nifty: no live Yahoo futures symbol.
-  SGX TWN-Z26.SI is FTSE Taiwan, not TWSE. SGX IN (old Nifty code) does not print.
-- TOPIX: CME TPY=F still has a symbol, but on 2026-11-23 the last trade was
-  2026-11-19, previous close equalled the price, and Yahoo's change did not.
-  That quote is rejected. No Osaka TOPIX futures symbol was found.
-- ASX 200: APZ6.AX is the December 2016 contract. No 2026 SPI symbol quoted.
-- US 2-year: no cash Yahoo yield. 2YY=F is not the cash yield. The row stays
-  on FRED DGS2. US 10-year stays on ^TNX. USD/JPY and AUD/USD stay cash FX.
+Verified cash symbols
+- S&P 500 ^GSPC, NASDAQ 100 ^NDX, Euro Stoxx 50 ^STOXX50E, DAX ^GDAXI,
+  FTSE 100 ^FTSE, Nikkei 225 ^N225, S&P/ASX 200 ^AXJO, KOSPI ^KS11
+- CSI 300 000300.SS, CSI 500 000905.SS, CSI 1000 000852.SS
+- TWSE ^TWII (TSEC capitalization-weighted index), Singapore STI ^STI,
+  Nifty 50 ^NSEI, KLCI ^KLSE, SET50 ^SET50.BK
+- USD/JPY USDJPY=X, AUD/USD AUDUSD=X, US 10-year ^TNX
+- US 2-year is FRED DGS2, not a Yahoo yield future
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
 
 from app.schemas import DashboardBoard, DashboardRow, DashboardSection, Meta, MoverRow, Movers, Quote
 from app.symbols import equity_universe
 from app.util import iso
-
-_MONTH_CODES = "FGHJKMNQUVXZ"
-_FUTURE_BASIS = "vs prior close"
 
 TWO_YEAR_SERIES = "DGS2"
 
@@ -63,84 +42,34 @@ class _Spec:
     reason: str | None = None
     link: bool = True
     basis: str | None = None
-    front_root: str | None = None
-    front_suffix: str = ".SI"
-
-
-def contract_candidates(root: str, suffix: str, today: date | None = None, count: int = 5) -> list[str]:
-    """Nearest listed months for an exchange that has no continuous Yahoo symbol."""
-    today = today or datetime.now(timezone.utc).date()
-    year, month = today.year, today.month
-    symbols: list[str] = []
-    for _ in range(count):
-        symbols.append(f"{root}-{_MONTH_CODES[month - 1]}{year % 100:02d}{suffix}")
-        month += 1
-        if month == 13:
-            month = 1
-            year += 1
-    return symbols
 
 
 STRIP: tuple[_Spec, ...] = (
-    _Spec("E-mini S&P futures", "CME", "future", "ES=F", ("SPX", "S&P 500", "SP500", "ES"), basis=_FUTURE_BASIS),
-    _Spec("E-mini NASDAQ 100 futures", "CME", "future", "NQ=F", ("NDX", "NASDAQ100", "NASDAQ 100", "NQ"), basis=_FUTURE_BASIS),
+    _Spec("S&P 500", "Equity Index", "index", "^GSPC", ("SPX", "S&P 500", "SP500")),
+    _Spec("NASDAQ 100", "Equity Index", "index", "^NDX", ("NDX", "NASDAQ100", "NASDAQ 100")),
+    _Spec("Euro Stoxx 50", "Equity Index", "index", "^STOXX50E", ("Eurostoxx", "STOXX50", "Euro Stoxx 50")),
+    _Spec("DAX", "Equity Index", "index", "^GDAXI", ("DAX",)),
+    _Spec("FTSE 100", "Equity Index", "index", "^FTSE", ("FTSE", "FTSE100", "FTSE 100")),
+    _Spec("CSI 300", "Equity Index", "index", "000300.SS", ("CSI300", "CSI 300")),
+    _Spec("KOSPI", "Equity Index", "index", "^KS11", ("KOSPI",)),
+    _Spec("Nikkei 225", "Equity Index", "index", "^N225", ("Nikkei", "N225")),
     _Spec(
-        "Euro Stoxx futures",
-        "Futures",
-        "future",
-        None,
-        ("Eurostoxx", "STOXX50", "Euro Stoxx 50", "Euro Stoxx"),
-        reason="No Yahoo futures symbol",
-        link=False,
-    ),
-    _Spec("DAX futures", "Futures", "future", None, ("DAX",), reason="No Yahoo futures symbol", link=False),
-    _Spec("FTSE 100 futures", "Futures", "future", None, ("FTSE", "FTSE100", "FTSE 100"), reason="No Yahoo futures symbol", link=False),
-    _Spec("CSI 300 futures", "Futures", "future", None, ("CSI300", "CSI 300"), reason="No Yahoo futures symbol", link=False),
-    _Spec("CSI 500 futures", "Futures", "future", None, ("CSI500", "CSI 500"), reason="No Yahoo futures symbol", link=False),
-    _Spec("CSI 1000 futures", "Futures", "future", None, ("CSI1000", "CSI 1000"), reason="No Yahoo futures symbol", link=False),
-    _Spec("KOSPI 200 futures", "Futures", "future", None, ("KOSPI", "KOSPI200", "KOSPI 200"), reason="No Yahoo futures symbol", link=False),
-    _Spec("Nikkei 225 futures", "CME", "future", "NIY=F", ("Nikkei", "N225", "NIY"), basis=_FUTURE_BASIS),
-    _Spec(
-        "TOPIX futures",
-        "Futures",
-        "future",
+        "TOPIX",
+        "Equity Index",
+        "index",
         None,
         ("TOPIX", "TPX"),
-        reason="No consistent Yahoo futures quote (CME TPY=F rejected)",
+        reason="No public Yahoo index symbol",
         link=False,
     ),
-    _Spec("TWSE futures", "Futures", "future", None, ("TWSE", "TAIEX"), reason="No Yahoo futures symbol", link=False),
-    _Spec(
-        "ASX 200 futures",
-        "Futures",
-        "future",
-        None,
-        ("ASX200", "ASX 200", "SPI"),
-        reason="No current Yahoo futures symbol",
-        link=False,
-    ),
-    _Spec(
-        "SGX MSCI Singapore futures",
-        "SGX",
-        "future",
-        None,
-        ("SGP", "MSCI Singapore", "SIMSCI"),
-        reason="No live SGX front-month quote",
-        link=True,
-        basis=_FUTURE_BASIS,
-        front_root="SGP",
-    ),
-    _Spec(
-        "SGX GIFT Nifty 50 futures",
-        "Futures",
-        "future",
-        None,
-        ("GIFT", "GIFT Nifty", "Nifty"),
-        reason="No Yahoo futures symbol",
-        link=False,
-    ),
-    _Spec("Malaysia KLCI futures", "Futures", "future", None, ("KLCI", "FKLI"), reason="No Yahoo futures symbol", link=False),
-    _Spec("Thailand SET50 futures", "Futures", "future", None, ("SET50",), reason="No Yahoo futures symbol", link=False),
+    _Spec("S&P/ASX 200", "Equity Index", "index", "^AXJO", ("ASX200", "ASX 200")),
+    _Spec("CSI 500", "Equity Index", "index", "000905.SS", ("CSI500", "CSI 500")),
+    _Spec("CSI 1000", "Equity Index", "index", "000852.SS", ("CSI1000", "CSI 1000")),
+    _Spec("TWSE", "Equity Index", "index", "^TWII", ("TWSE", "TAIEX")),
+    _Spec("Singapore STI", "Equity Index", "index", "^STI", ("STI", "Singapore")),
+    _Spec("Nifty 50", "Equity Index", "index", "^NSEI", ("Nifty", "Nifty 50")),
+    _Spec("KLCI", "Equity Index", "index", "^KLSE", ("KLCI", "FKLI")),
+    _Spec("SET50", "Equity Index", "index", "^SET50.BK", ("SET50",)),
     _Spec("USD/JPY", "FX", "fx", "USDJPY=X", ("USDJPY", "USD/JPY")),
     _Spec("AUD/USD", "FX", "fx", "AUDUSD=X", ("AUDUSD", "AUD/USD")),
     _Spec("US 2-Year Yield", "Rates", "rate", TWO_YEAR_SERIES, ("US2Y", "US 2Y"), provider="fred", link=False),
@@ -160,18 +89,11 @@ G10: tuple[_Spec, ...] = (
 )
 
 
-def market_symbols(today: date | None = None) -> list[str]:
-    """Yahoo symbols the strip and G10 board need. FRED rows and blank futures are omitted."""
+def market_symbols() -> list[str]:
+    """Yahoo symbols the strip and G10 board need. FRED and blank rows are omitted."""
     symbols: list[str] = []
     for spec in (*STRIP, *G10):
-        if spec.provider != "yfinance":
-            continue
-        if spec.front_root:
-            for symbol in contract_candidates(spec.front_root, spec.front_suffix, today):
-                if symbol not in symbols:
-                    symbols.append(symbol)
-            continue
-        if not spec.symbol:
+        if spec.provider != "yfinance" or not spec.symbol:
             continue
         if spec.symbol not in symbols:
             symbols.append(spec.symbol)
@@ -257,25 +179,6 @@ def _market_row(spec: _Spec, quote: Quote | None, *, attempted: set[str], live: 
     if spec.symbol not in attempted:
         return _blank(spec, "pending", None)
     return _blank(spec, "unavailable", spec.reason or "No live quote")
-
-
-def _front_row(spec: _Spec, quotes: dict[str, Quote], *, attempted: set[str], live: bool) -> DashboardRow:
-    """Highest-volume live month among the nearby contracts. Continuous symbols use `_market_row`."""
-    candidates = contract_candidates(spec.front_root or "", spec.front_suffix)
-    if not live:
-        return _blank(spec, "unavailable", "Live feed off")
-    usable: list[Quote] = []
-    for symbol in candidates:
-        quote = _usable(quotes.get(symbol))
-        if quote is None:
-            continue
-        usable.append(quote)
-    if usable:
-        best = max(usable, key=lambda quote: (quote.previousClose not in (None, 0), quote.volume or 0, quote.symbol))
-        return _from_quote(spec, best, symbol=best.symbol)
-    if not set(candidates).issubset(attempted):
-        return _blank(spec, "pending", None)
-    return _blank(spec, "unavailable", spec.reason or "No live front-month quote")
 
 
 def _two_year(spec: _Spec, fred: dict | None, *, macro_done: bool, live: bool) -> DashboardRow:
@@ -368,8 +271,6 @@ def build_dashboard(
     for spec in STRIP:
         if spec.provider == "fred":
             strip.append(_two_year(spec, fred if live else None, macro_done=macro_done, live=live))
-        elif spec.front_root:
-            strip.append(_front_row(spec, quotes, attempted=attempted, live=live))
         else:
             quote = quotes.get(spec.symbol) if spec.symbol else None
             strip.append(_market_row(spec, quote, attempted=attempted, live=live))

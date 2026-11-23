@@ -89,7 +89,7 @@ def test_upcoming_events_drop_dates_already_past():
     assert upcoming_events({}, [], date(2026, 11, 23)) == []
 
 
-def test_profile_labels_yahoo_taxonomy_and_does_not_invent_gics():
+def test_profile_uses_a_public_description_and_hides_taxonomy():
     profile = profile_from_parts(
         "AAPL",
         {
@@ -116,17 +116,22 @@ def test_profile_labels_yahoo_taxonomy_and_does_not_invent_gics():
         events=[],
         events_status="unavailable",
         events_reason="No upcoming date in the Yahoo calendar.",
+        public_summary="Apple Inc. is an American technology company.",
+        public_source="Wikipedia summary. Google search did not return a readable description from this server.",
     )
     assert profile.forwardPE == 32.4
     assert profile.priceToBook == 44.4
     assert profile.week52High == 360.83
     assert profile.week52Low == 243.42
-    assert profile.taxonomyLabel == "Technology · Consumer Electronics"
-    assert "GICS" in profile.taxonomySource
-    assert "Yahoo Finance" in profile.taxonomySource
+    assert profile.sector is None
+    assert profile.industry is None
+    assert profile.taxonomyLabel is None
+    assert profile.taxonomySource is None
     assert profile.gicsCode is None
-    assert profile.descriptionSource == "Yahoo Finance business summary"
-    assert "Bloomberg" not in profile.summary
+    assert profile.summary == "Apple Inc. is an American technology company."
+    assert profile.descriptionSource.startswith("Wikipedia")
+    assert "Bloomberg" not in (profile.summary or "")
+    assert "GICS" not in (profile.summary or "")
     assert profile.turnoverStatus == "ok"
     assert profile.turnoverUsd == 342.56 * 1000
     assert profile.peers == []
