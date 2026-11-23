@@ -44,15 +44,11 @@ DEFAULT_WATCHLIST = [
     "2881.TW", "HPE", "STAN.L", "LONN.SW", "NUE", "OXY", "PCAR", "600000.SS", "6981.T", "EOAN.DE", "IDXX",
     "OKE", "SHL.DE", "0981.HK", "NA.TO", "SREN.SW", "DAL", "AZO", "ATD.TO", "002475.SZ", "HINDUNILVR.NS",
     "0728.HK", "CTVA", "GRMN", "ABX.TO", "Z74.SI", "AME", "ADSK", "CCEP.L", "373220.KS", "XEL", "3690.HK",
-    "ACA.PA", "GALD.SW", "0019.HK", "EBAY", "HEIA.AS", "HO.PA", "^302000-USD-STRD", "^899903-USD-STRD",
-    "^899800-USD-STRD", "^SPASIA50", "^DJAT", "^N225", "^AXJO", "^AORD", "^AXKO", "^NZ50", "000001.SS",
-    "399001.SZ", "000300.SS", "399006.SZ", "000688.SS", "000905.SS", "^HSCE", "^HSI", "HSTECH.HK", "^KS11",
-    "^KQ11", "^KS200", "^TWII", "^STI", "^JKSE", "^SET.BK", "^KLSE", "PSEI.PS", "^VNINDEX.VN", "ASEAN40.FGI",
-    "^NSEI", "^BSESN", "^CRSLDX"
+    "ACA.PA", "GALD.SW", "0019.HK", "EBAY", "HEIA.AS", "HO.PA",
 ]
 
-# Asia benchmarks that already sit at the end of DEFAULT_WATCHLIST. They remain
-# in the book. Mover ranks use every other name and do not drop equities.
+# Asia benchmarks excluded from the left-panel watchlist. Mover ranks use the
+# equity book only and do not drop equities when these names appear elsewhere.
 ASIA_INDEX_SYMBOLS = (
     "^302000-USD-STRD",
     "^899903-USD-STRD",
@@ -219,7 +215,7 @@ def catalog_row(symbol: str) -> dict[str, str] | None:
 
 
 def equity_universe() -> list[str]:
-    """Cash names in the default book, preserving order. Asia indices stay on the book."""
+    """Cash names in the default book, preserving order. Asia indices are not on the book."""
     blocked = set(ASIA_INDEX_SYMBOLS)
     return [symbol for symbol in DEFAULT_WATCHLIST if symbol not in blocked]
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -33,18 +34,21 @@ def _quote(symbol: str, price: float, change_pct: float, volume: float, *, sampl
 
 
 def test_equity_book_keeps_every_name():
-    assert len(DEFAULT_WATCHLIST) == 495
-    assert len(set(DEFAULT_WATCHLIST)) == 495
+    assert len(DEFAULT_WATCHLIST) == 462
+    assert len(set(DEFAULT_WATCHLIST)) == 462
     assert len(ASIA_INDEX_SYMBOLS) == 33
-    assert set(ASIA_INDEX_SYMBOLS) <= set(DEFAULT_WATCHLIST)
+    assert set(ASIA_INDEX_SYMBOLS).isdisjoint(DEFAULT_WATCHLIST)
     equities = equity_universe()
     assert len(equities) == 462
-    assert equities == [symbol for symbol in DEFAULT_WATCHLIST if symbol not in set(ASIA_INDEX_SYMBOLS)]
+    assert equities == list(DEFAULT_WATCHLIST)
     assert not any(symbol.startswith("^") for symbol in equities)
     root = Path(__file__).resolve().parents[2]
     client = (root / "frontend/src/context/TerminalContext.tsx").read_text()
     for symbol in DEFAULT_WATCHLIST:
         assert f'"{symbol}"' in client
+    # Frontend DEFAULT_WATCHLIST ends at HO.PA; index tickers are not seeded there.
+    assert '"HO.PA"' in client
+    assert re.search(r'DEFAULT_WATCHLIST\s*=\s*\[[^\]]*?\^N225', client, re.S) is None
 
 
 def test_verified_symbols_and_aliases():
