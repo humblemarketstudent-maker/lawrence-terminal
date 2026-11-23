@@ -40,6 +40,7 @@ export function HelpDialog() {
     ["R", "Force-refresh feeds"],
     ["Esc", "Close the reader, brief, or help"],
     ["?", "Show this card"],
+    ["MKT", "Benchmarks, equity movers, and G10 FX sit under the command bar"],
   ];
   return (
     <Modal open={helpOpen} onOpenChange={setHelpOpen} title="KEYS">

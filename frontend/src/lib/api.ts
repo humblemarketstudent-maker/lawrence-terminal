@@ -1,4 +1,4 @@
-import type { Bootstrap, Brief, History, NewsItem, Quote, SearchHit, Section, SymbolBundle, WeiBoard, EcoBoard, Filing } from "../types.ts";
+import type { Bootstrap, Brief, DashboardBoard, History, NewsItem, Quote, SearchHit, Section, SymbolBundle, WeiBoard, EcoBoard, Filing } from "../types.ts";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -40,6 +40,7 @@ export const api = {
   history: (symbol: string, range: string) =>
     getJSON<Section<History>>(`/api/history/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}`),
   news: (symbol?: string) => getJSON<Section<NewsItem[]>>(`/api/news${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
+  dashboard: () => getJSON<Section<DashboardBoard>>("/api/dashboard"),
   wei: () => getJSON<Section<WeiBoard>>("/api/wei"),
   eco: () => getJSON<Section<EcoBoard>>("/api/eco"),
   filings: (symbol: string) => getJSON<Section<Filing[]>>(`/api/filings/${encodeURIComponent(symbol)}`),

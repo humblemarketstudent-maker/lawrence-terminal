@@ -156,6 +156,14 @@ async def news(symbol: str | None = None):
     return terminal.news_section(key)
 
 
+@app.get("/api/dashboard")
+async def dashboard():
+    terminal = get_terminal()
+    if not terminal._macro_done:
+        terminal._kick("macro", terminal.refresh_macro)
+    return terminal.dashboard_section()
+
+
 @app.get("/api/wei")
 async def wei():
     terminal = get_terminal()
