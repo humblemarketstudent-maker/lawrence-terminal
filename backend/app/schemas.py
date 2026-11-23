@@ -81,6 +81,11 @@ class PeerRow(BaseModel):
     priceBook: float | None = None
     revenueGrowth: float | None = None
     ytd: float | None = None
+    price: float | None = None
+    change: float | None = None
+    changePct: float | None = None
+    currency: str | None = None
+    status: Literal["ok", "unavailable"] = "ok"
 
 
 class AnalystView(BaseModel):
@@ -104,6 +109,13 @@ class OptionSnapshot(BaseModel):
     sample: bool = False
 
 
+class CompanyEvent(BaseModel):
+    kind: Literal["earnings", "ex-dividend", "dividend"]
+    label: str
+    date: str
+    detail: str | None = None
+
+
 class CompanyProfile(BaseModel):
     symbol: str
     name: str
@@ -122,6 +134,30 @@ class CompanyProfile(BaseModel):
     peers: list[PeerRow] = Field(default_factory=list)
     options: OptionSnapshot | None = None
     price: float | None = None
+    change: float | None = None
+    changePct: float | None = None
+    week52High: float | None = None
+    week52Low: float | None = None
+    volume: float | None = None
+    turnoverLocal: float | None = None
+    turnoverCurrency: str | None = None
+    turnoverUsd: float | None = None
+    fxPair: str | None = None
+    fxRate: float | None = None
+    turnoverStatus: Literal["ok", "unavailable", "pending"] = "unavailable"
+    turnoverReason: str | None = None
+    forwardPE: float | None = None
+    priceToBook: float | None = None
+    taxonomyLabel: str | None = None
+    taxonomySource: str = "Yahoo Finance sector and industry. An official GICS code is not in the public feed."
+    gicsCode: str | None = None
+    descriptionSource: str | None = None
+    events: list[CompanyEvent] = Field(default_factory=list)
+    eventsStatus: Literal["ok", "unavailable", "pending"] = "unavailable"
+    eventsReason: str | None = None
+    peersStatus: Literal["ok", "unavailable", "pending"] = "unavailable"
+    peersReason: str | None = None
+    peersSource: str | None = None
     marketCap: float | None = None
     enterpriseValue: float | None = None
     beta: float | None = None
@@ -319,6 +355,7 @@ class DashboardRow(BaseModel):
     reason: str | None = None
     provider: str | None = None
     link: bool = False
+    basis: str | None = None
 
 
 class MoverRow(BaseModel):

@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import pandas as pd
 
 from app.bars import RANGE_TO_YF, last_session, scale_bar, scale_value
 from app.schemas import Quote
+from app.services.company import price_currency
 from app.symbols import bloomberg_label, classify, currency_for, exchange_for, name_for
 from app.util import iso, num
+
+_FUTURE_MONTH = re.compile(r"^[A-Z0-9]{1,8}-[FGHJKMNQUVXZ]\d{2}\.[A-Z]{1,4}$")
+_FX_CACHE: dict[str, tuple[float, dict | None]] = {}
+_FX_TTL = 600.0
 
 log = logging.getLogger(__name__)
 _POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="apex-yf")
@@ -134,15 +142,90 @@ def _fill_thin_previous(symbol: str, quote: Quote) -> Quote:
     return apply_previous_close(quote, previous)
 
 
+def is_future_symbol(symbol: str) -> bool:
+    return symbol.endswith("=F") or bool(_FUTURE_MONTH.match(symbol))
+
+
+def future_quote_from_info(symbol: str, raw: dict | None) -> Quote | None:
+    """Last vs Yahoo previous close. Reject a print whose own change disagrees.
+
+    Futures change on this desk is price minus `regularMarketPreviousClose`.
+    Yahoo's `regularMarketChange` has to match that difference. A contract
+    whose fields disagree, or that is not quoteType FUTURE, is dropped.
+    """
+    raw = raw or {}
+    if str(raw.get("quoteType") or "").upper() != "FUTURE":
+        return None
+    price = num(raw.get("regularMarketPrice"))
+    previous = num(raw.get("regularMarketPreviousClose"))
+    if previous is None:
+        previous = num(raw.get("previousClose"))
+    if price is None or price <= 0 or previous is None or previous <= 0:
+        return None
+    traded = num(raw.get("regularMarketTime"))
+    if traded is not None:
+        age_days = (datetime.now(timezone.utc).timestamp() - traded) / 86400.0
+        if age_days > 5:
+            log.info("futures %s rejected: last trade %.1f days ago", symbol, age_days)
+            return None
+    change = price - previous
+    reported = num(raw.get("regularMarketChange"))
+    tolerance = max(0.05, abs(previous) * 1e-4)
+    if reported is not None and abs(reported - change) > tolerance:
+        log.info("futures %s rejected: price %s prev %s yahoo change %s", symbol, price, previous, reported)
+        return None
+    name = raw.get("shortName") or raw.get("longName") or symbol
+    currency = raw.get("currency") if isinstance(raw.get("currency"), str) else currency_for(symbol)
+    exchange = raw.get("exchange") if isinstance(raw.get("exchange"), str) else exchange_for(symbol)
+    volume = num(raw.get("regularMarketVolume"))
+    return Quote(
+        symbol=symbol,
+        name=str(name),
+        label=bloomberg_label(symbol),
+        assetClass="future",
+        currency=currency or "USD",
+        exchange=exchange or "",
+        price=price,
+        change=change,
+        changePct=change / previous * 100.0,
+        previousClose=previous,
+        volume=volume if volume and volume > 0 else None,
+        status="ok",
+        sample=False,
+        asOf=iso(),
+    )
+
+
+def _download_future_quotes(symbols: list[str]) -> list[Quote]:
+    import yfinance as yf
+
+    def one(symbol: str) -> Quote | None:
+        try:
+            raw = yf.Ticker(symbol).info or {}
+        except Exception as exc:
+            log.info("futures info %s: %s", symbol, exc)
+            return None
+        return future_quote_from_info(symbol, raw)
+
+    quotes: list[Quote] = []
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="apex-fut") as pool:
+        for quote in pool.map(one, symbols):
+            if quote is not None:
+                quotes.append(quote)
+    return quotes
+
+
 def download_quotes(symbols: list[str]) -> list[Quote]:
     import yfinance as yf
 
     if not symbols:
         return []
+    futures = [symbol for symbol in symbols if is_future_symbol(symbol)]
+    cash = [symbol for symbol in symbols if symbol not in set(futures)]
     quotes: list[Quote] = []
     chunk_size = 40
-    for i in range(0, len(symbols), chunk_size):
-        chunk = symbols[i : i + chunk_size]
+    for i in range(0, len(cash), chunk_size):
+        chunk = cash[i : i + chunk_size]
         try:
             frame = yf.download(
                 " ".join(chunk),
@@ -170,6 +253,8 @@ def download_quotes(symbols: list[str]) -> list[Quote]:
                 quote = _fill_thin_previous(symbol, quote)
             if quote:
                 quotes.append(quote)
+    if futures:
+        quotes.extend(_download_future_quotes(futures))
     return quotes
 
 
@@ -217,6 +302,9 @@ def _slim_info(raw: dict) -> dict:
         "dividendYield", "beta", "targetMeanPrice", "targetHighPrice", "targetLowPrice",
         "recommendationKey", "numberOfAnalystOpinions", "freeCashflow", "returnOnEquity",
         "totalRevenue", "trailingEps", "quoteType", "currency", "exchange",
+        "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "regularMarketPrice", "regularMarketChange",
+        "regularMarketChangePercent", "regularMarketPreviousClose", "regularMarketVolume",
+        "revenueGrowth",
     ]
     out: dict = {}
     for key in keys:
@@ -228,7 +316,7 @@ def _slim_info(raw: dict) -> dict:
                 if isinstance(officer, dict)
             ]
         elif key == "longBusinessSummary" and isinstance(value, str):
-            out[key] = value[:1200]
+            out[key] = value[:1400]
         elif isinstance(value, str):
             out[key] = value
         else:
@@ -237,16 +325,134 @@ def _slim_info(raw: dict) -> dict:
     return out
 
 
+def _json_date(value: object) -> object:
+    if isinstance(value, list):
+        return [_json_date(item) for item in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()  # type: ignore[no-any-return]
+        except Exception:
+            return str(value)
+    return value
+
+
+def _calendar_payload(ticker) -> dict:
+    try:
+        calendar = ticker.calendar
+    except Exception as exc:
+        log.info("calendar %s: %s", getattr(ticker, "ticker", ""), exc)
+        return {"calendar": {}, "earnings": []}
+    flat: dict = {}
+    if isinstance(calendar, dict):
+        for key, value in calendar.items():
+            flat[str(key)] = _json_date(value)
+    earnings: list[dict] = []
+    try:
+        frame = ticker.earnings_dates
+    except Exception as exc:
+        log.info("earnings dates %s: %s", getattr(ticker, "ticker", ""), exc)
+        frame = None
+    if frame is not None and not getattr(frame, "empty", True):
+        for idx, row in list(frame.head(8).iterrows()):
+            stamp = pd.Timestamp(idx)
+            earnings.append({"date": str(stamp.date()), "epsEstimate": num(row.get("EPS Estimate"))})
+    return {"calendar": flat, "earnings": earnings}
+
+
+def _recommended_symbols(symbol: str) -> tuple[list[str], str | None]:
+    try:
+        from curl_cffi import requests
+
+        response = requests.get(
+            f"https://query1.finance.yahoo.com/v6/finance/recommendationsbysymbol/{symbol}",
+            impersonate="chrome",
+            timeout=12,
+        )
+        payload = response.json()
+        result = ((payload.get("finance") or {}).get("result") or [{}])[0]
+        found: list[str] = []
+        for row in result.get("recommendedSymbols") or []:
+            peer = str((row or {}).get("symbol") or "").upper()
+            if peer and peer != symbol.upper() and peer not in found:
+                found.append(peer)
+        return found[:5], None
+    except Exception as exc:
+        log.info("peers %s: %s", symbol, exc)
+        return [], "Yahoo peer feed did not respond."
+
+
+def _peer_infos(symbols: list[str]) -> list[dict]:
+    import yfinance as yf
+
+    def one(peer: str) -> dict | None:
+        try:
+            raw = yf.Ticker(peer).info or {}
+        except Exception as exc:
+            log.info("peer info %s: %s", peer, exc)
+            return None
+        info = _slim_info(raw)
+        info["symbol"] = peer
+        if num(info.get("regularMarketPrice")) is None:
+            return None
+        return info
+
+    if not symbols:
+        return []
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="apex-peer") as pool:
+        return [row for row in pool.map(one, symbols) if row]
+
+
+def _fx_payload(currency: str | None) -> dict | None:
+    """USD value of one major unit of `currency`, from a live Yahoo FX pair."""
+    major, _divisor = price_currency(currency)
+    if major == "USD":
+        return {"pair": "USD", "usdPerMajor": 1.0, "major": "USD"}
+    now = time.monotonic()
+    cached = _FX_CACHE.get(major)
+    if cached and now - cached[0] < _FX_TTL:
+        return cached[1]
+    import yfinance as yf
+
+    chosen: dict | None = None
+    for pair, invert in ((f"{major}USD=X", False), (f"USD{major}=X", True)):
+        try:
+            raw = yf.Ticker(pair).info or {}
+        except Exception as exc:
+            log.info("fx %s: %s", pair, exc)
+            continue
+        price = num(raw.get("regularMarketPrice"))
+        if price is None or price <= 0:
+            continue
+        label = f"{raw.get('shortName') or ''} {raw.get('longName') or ''}".upper()
+        quote_type = str(raw.get("quoteType") or "").upper()
+        if quote_type not in {"CURRENCY", ""} and major not in label and "USD" not in label:
+            continue
+        if quote_type != "CURRENCY" and major not in label:
+            continue
+        usd = (1.0 / price) if invert else price
+        if not 1e-8 < usd < 1000:
+            continue
+        chosen = {"pair": pair, "usdPerMajor": usd, "major": major}
+        break
+    _FX_CACHE[major] = (now, chosen)
+    return chosen
+
+
 def download_fundamentals(symbol: str) -> dict:
     import yfinance as yf
 
     ticker = yf.Ticker(symbol)
     info = ticker.info or {}
+    peers, peers_error = _recommended_symbols(symbol)
     return {
         "info": _slim_info(info),
         "income": _statement_block(ticker.financials),
         "balance": _statement_block(ticker.balance_sheet),
         "cashflow": _statement_block(ticker.cashflow),
+        "events": _calendar_payload(ticker),
+        "peers": _peer_infos(peers),
+        "peersError": peers_error,
+        "fx": _fx_payload(info.get("currency") if isinstance(info.get("currency"), str) else None),
     }
 
 

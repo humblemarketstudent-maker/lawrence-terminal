@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from app.schemas import (
     AnalystView,
+    CompanyEvent,
     CompanyProfile,
     Executive,
     LineItem,
     Multiple,
     OptionSnapshot,
     PeerRow,
+    Quote,
     Statements,
 )
+from app.services.company import DESCRIPTION_SOURCE, TAXONOMY_SOURCE, Turnover, dollar_volume
 from app.symbols import bloomberg_label, classify, currency_for, name_for
 from app.util import clean_person, num
 
@@ -283,6 +286,20 @@ def latest_ratio(statements: Statements | None, key: str) -> float | None:
     return None
 
 
+def _clip_text(text: str, limit: int) -> str:
+    """Cut on a sentence or word so the description does not end mid-word."""
+    text = " ".join(text.split()).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    dot = max(cut.rfind(". "), cut.rfind("."))
+    if dot >= int(limit * 0.55):
+        return cut[: dot + 1]
+    space = cut.rfind(" ")
+    body = cut[:space] if space > 40 else cut
+    return body.rstrip(" ,;:") + "…"
+
+
 def revenue_growth(statements: Statements | None) -> float | None:
     if not statements:
         return None
@@ -357,12 +374,25 @@ def profile_from_parts(
     statements: Statements | None,
     options: OptionSnapshot | None,
     sample: bool,
+    quote: Quote | None = None,
+    fx: dict | None = None,
+    events: list[CompanyEvent] | None = None,
+    events_status: str | None = None,
+    events_reason: str | None = None,
+    peers_status: str | None = None,
+    peers_reason: str | None = None,
+    peers_source: str | None = None,
 ) -> CompanyProfile:
     info = info or {}
-    asset = classify(symbol, str(info.get("quoteType") or "") or None)
+    quote_type = str(info.get("quoteType") or "")
+    asset = "future" if quote_type.upper() == "FUTURE" else classify(symbol, quote_type or None)
     currency = currency_for(symbol, info.get("currency") if isinstance(info.get("currency"), str) else None)
     name = name_for(symbol, info.get("longName") or info.get("shortName"))
     summary = info.get("longBusinessSummary") if isinstance(info.get("longBusinessSummary"), str) else ""
+    description_source = None
+    if summary:
+        summary = " ".join(summary.split())
+        description_source = DESCRIPTION_SOURCE
     if not summary:
         if asset == "etf":
             summary = f"{name} is an exchange-traded fund. Operating statements are not shown for the wrapper."
@@ -370,6 +400,8 @@ def profile_from_parts(
             summary = f"{name} is a published market index tracked on the monitor."
         elif asset == "fx":
             summary = f"{name} is a spot currency or dollar index quote."
+        elif asset == "future":
+            summary = f"{name} is an exchange-traded futures contract. The level is the futures price."
         elif asset == "commodity":
             summary = f"{name} is a front-month commodity future."
         elif asset == "crypto":
@@ -378,7 +410,67 @@ def profile_from_parts(
             summary = "US Treasury yield index. The level is the yield in percent."
         else:
             summary = "A full business description was not returned. Quote and market fields are shown where the provider has them."
-    summary = summary.strip()[:900]
+    summary = _clip_text(summary, 900)
+    live_quote = quote is not None and not quote.sample and quote.price is not None
+    if live_quote and quote is not None:
+        price = quote.price
+        change = quote.change
+        change_pct = quote.changePct
+        volume = quote.volume or num(info.get("regularMarketVolume"))
+    else:
+        if price is None:
+            price = num(info.get("regularMarketPrice"))
+        change = num(info.get("regularMarketChange"))
+        change_pct = num(info.get("regularMarketChangePercent"))
+        volume = num(info.get("regularMarketVolume"))
+        if quote is not None and quote.sample:
+            # Offline book can fill the tape. It must not invent a session change
+            # that fights a live quote the desk is already showing.
+            change = None
+            change_pct = None
+    week_high = num(info.get("fiftyTwoWeekHigh"))
+    week_low = num(info.get("fiftyTwoWeekLow"))
+    if week_high is None and quote is not None:
+        week_high = quote.week52High
+    if week_low is None and quote is not None:
+        week_low = quote.week52Low
+    fx = fx or {}
+    if sample:
+        turnover = Turnover(None, None, None, None, None, "pending", None)
+    else:
+        turnover = dollar_volume(
+            price,
+            volume,
+            currency,
+            usd_per_major=num(fx.get("usdPerMajor")) if fx else (1.0 if currency == "USD" else None),
+            pair=str(fx.get("pair")) if fx.get("pair") else ("USD" if currency == "USD" else None),
+        )
+    sector = info.get("sector") if isinstance(info.get("sector"), str) else None
+    industry = info.get("industry") if isinstance(info.get("industry"), str) else None
+    taxonomy = " · ".join(part for part in (sector, industry) if part) or None
+    if events_status is None:
+        if events:
+            events_status = "ok"
+            events_reason = None
+        elif sample:
+            events_status = "pending"
+            events_reason = None
+        else:
+            events_status = "unavailable"
+            events_reason = events_reason or "No upcoming date in the Yahoo calendar."
+    if peers_status is None:
+        if sample:
+            peers = []
+            peers_status = "pending"
+            peers_reason = None
+            peers_source = None
+        elif peers:
+            peers_status = "ok"
+            peers_source = peers_source or "Yahoo Finance recommendations"
+        else:
+            peers_status = "unavailable"
+            peers_reason = peers_reason or "No live peer list from Yahoo Finance."
+            peers_source = None
     city = info.get("city") or ""
     state = info.get("state") or ""
     country = info.get("country") or ""
@@ -412,8 +504,8 @@ def profile_from_parts(
         name=name,
         label=bloomberg_label(symbol),
         assetClass=asset,
-        sector=info.get("sector") if isinstance(info.get("sector"), str) else None,
-        industry=info.get("industry") if isinstance(info.get("industry"), str) else None,
+        sector=sector,
+        industry=industry,
         summary=summary,
         website=info.get("website") if isinstance(info.get("website"), str) else None,
         employees=int(employees) if isinstance(employees, (int, float)) else None,
@@ -425,6 +517,30 @@ def profile_from_parts(
         peers=peers,
         options=options,
         price=price,
+        change=change,
+        changePct=change_pct,
+        week52High=week_high,
+        week52Low=week_low,
+        volume=volume,
+        turnoverLocal=turnover.local,
+        turnoverCurrency=turnover.local_currency,
+        turnoverUsd=turnover.usd,
+        fxPair=turnover.pair,
+        fxRate=turnover.fx_rate,
+        turnoverStatus=turnover.status,  # type: ignore[arg-type]
+        turnoverReason=turnover.reason,
+        forwardPE=num(info.get("forwardPE")),
+        priceToBook=num(info.get("priceToBook")),
+        taxonomyLabel=taxonomy,
+        taxonomySource=TAXONOMY_SOURCE,
+        gicsCode=None,
+        descriptionSource=description_source,
+        events=events or [],
+        eventsStatus=events_status,  # type: ignore[arg-type]
+        eventsReason=events_reason,
+        peersStatus=peers_status,  # type: ignore[arg-type]
+        peersReason=peers_reason,
+        peersSource=peers_source,
         marketCap=num(info.get("marketCap")),
         enterpriseValue=num(info.get("enterpriseValue")),
         beta=num(info.get("beta")),

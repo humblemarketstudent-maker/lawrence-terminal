@@ -68,7 +68,7 @@ class MarketRouter:
         return await self._run(lambda: download_history(symbol, range_key), 22)
 
     async def get_fundamentals(self, symbol: str) -> dict:
-        return await self._run(lambda: download_fundamentals(symbol), 25)
+        return await self._run(lambda: download_fundamentals(symbol), 45)
 
     async def get_options(self, symbol: str, spot: float | None) -> dict | None:
         try:

@@ -1,19 +1,65 @@
 import { useTerminal } from "../context/TerminalContext.tsx";
-import { formatCompact, formatMultiple, formatPct, formatPrice } from "../lib/format.ts";
-import type { PeerRow } from "../types.ts";
+import { formatCompact, formatMultiple, formatPct, formatPrice, toneClass, toneOf } from "../lib/format.ts";
+import type { CompanyProfile, PeerRow } from "../types.ts";
 import { EmptyNote, PanelFrame, SourcePill } from "./bits.tsx";
 
-function PeerTable({ peers, onPick }: { peers: PeerRow[]; onPick: (symbol: string) => void }) {
+function Field({ label, value, title, tone }: { label: string; value: string; title?: string; tone?: "up" | "down" | "flat" }) {
   return (
-    <div>
-      <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-amber">Peer comparison</div>
-      {peers.length === 0 ? <div className="text-[12px] text-muted">No mapped comps for this symbol.</div> : null}
-      {peers.length > 0 ? (
+    <div className="border border-border px-2 py-1.5" title={title}>
+      <div className="text-[9px] uppercase tracking-wide text-dim">{label}</div>
+      <div className={`truncate ${tone ? toneClass(tone) : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function statusText(status: string, reason?: string | null): string {
+  if (status === "pending") return "LOAD";
+  if (status === "unavailable") return "UNAVAILABLE";
+  return reason || "—";
+}
+
+function turnoverValue(profile: CompanyProfile): { text: string; title: string } {
+  if (profile.turnoverStatus === "pending") return { text: "LOAD", title: "Loading dollar turnover" };
+  if (profile.turnoverStatus !== "ok" || profile.turnoverUsd == null) {
+    const local = profile.turnoverLocal != null ? `Local ${formatCompact(profile.turnoverLocal)} ${profile.turnoverCurrency ?? ""}`.trim() : "";
+    return { text: "UNAVAILABLE", title: [profile.turnoverReason, local].filter(Boolean).join(" · ") };
+  }
+  const fx = profile.fxPair && profile.fxPair !== "USD" && profile.fxRate != null
+    ? `${profile.fxPair} ${profile.fxRate.toFixed(profile.fxRate < 0.1 ? 6 : 4)}`
+    : "USD";
+  const local = profile.turnoverCurrency && profile.turnoverCurrency !== "USD"
+    ? `${formatCompact(profile.turnoverLocal)} ${profile.turnoverCurrency}`
+    : "";
+  return { text: `$${formatCompact(profile.turnoverUsd)}`, title: [local, fx].filter(Boolean).join(" · ") || "Dollar turnover" };
+}
+
+function PeerTable({
+  peers,
+  status,
+  reason,
+  source,
+  onPick,
+}: {
+  peers: PeerRow[];
+  status: CompanyProfile["peersStatus"];
+  reason?: string | null;
+  source?: string | null;
+  onPick: (symbol: string) => void;
+}) {
+  return (
+    <div data-testid="peer-comparison">
+      <div className="mb-1 flex items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-[0.14em] text-amber">Peer comparison</span>
+        {source ? <span className="truncate text-[10px] text-dim">{source}</span> : null}
+      </div>
+      {status !== "ok" ? <div className="text-[12px] text-amber" title={reason ?? ""}>{statusText(status, reason)}{reason && status === "unavailable" ? ` · ${reason}` : ""}</div> : null}
+      {status === "ok" && peers.length === 0 ? <div className="text-[12px] text-amber">UNAVAILABLE</div> : null}
+      {status === "ok" && peers.length > 0 ? (
         <div className="overflow-auto border border-border">
           <table className="w-full text-[11px]">
             <thead className="text-dim">
               <tr>
-                {["Ticker", "Mkt cap", "P/E", "Fwd", "EV/EBITDA", "P/B", "Rev g", "YTD"].map((label) => (
+                {["Ticker", "Price", "Chg %", "Fwd P/E", "P/B", "Mkt cap", "P/E", "EV/EBITDA"].map((label) => (
                   <th key={label} className="px-2 py-1 text-right font-normal first:text-left">{label}</th>
                 ))}
               </tr>
@@ -25,13 +71,13 @@ function PeerTable({ peers, onPick }: { peers: PeerRow[]; onPick: (symbol: strin
                     <button type="button" className="text-amber" onClick={() => onPick(peer.symbol)}>{peer.symbol}</button>
                     <span className="ml-2 text-dim">{peer.name}</span>
                   </td>
+                  <td className="px-2 text-right">{formatPrice(peer.price, "equity")}</td>
+                  <td className={`px-2 text-right ${toneClass(toneOf(peer.changePct))}`}>{formatPct(peer.changePct, 2)}</td>
+                  <td className="px-2 text-right">{peer.forwardPE?.toFixed(1) ?? "—"}</td>
+                  <td className="px-2 text-right">{peer.priceBook?.toFixed(1) ?? "—"}</td>
                   <td className="px-2 text-right">{formatCompact(peer.marketCap, 1)}</td>
                   <td className="px-2 text-right">{peer.trailingPE?.toFixed(1) ?? "—"}</td>
-                  <td className="px-2 text-right">{peer.forwardPE?.toFixed(1) ?? "—"}</td>
                   <td className="px-2 text-right">{peer.evEbitda?.toFixed(1) ?? "—"}</td>
-                  <td className="px-2 text-right">{peer.priceBook?.toFixed(1) ?? "—"}</td>
-                  <td className="px-2 text-right">{formatPct(peer.revenueGrowth, 1)}</td>
-                  <td className={`px-2 text-right ${(peer.ytd ?? 0) >= 0 ? "text-up" : "text-down"}`}>{formatPct(peer.ytd, 1)}</td>
                 </tr>
               ))}
             </tbody>
@@ -45,22 +91,59 @@ function PeerTable({ peers, onPick }: { peers: PeerRow[]; onPick: (symbol: strin
 export function TearSheet() {
   const { profile, profileMeta, activeQuote, selectTicker, filings, symbol } = useTerminal();
   if (!profile) return <PanelFrame code="DES" title={symbol}><EmptyNote>Loading the tear sheet.</EmptyNote></PanelFrame>;
-  const price = activeQuote?.price ?? profile.price;
+  const liveQuote = activeQuote && !activeQuote.sample && activeQuote.status === "ok" ? activeQuote : null;
+  const price = profile.sample ? (liveQuote?.price ?? profile.price) : (profile.price ?? liveQuote?.price ?? null);
+  const changePct = profile.sample ? (liveQuote?.changePct ?? profile.changePct) : (profile.changePct ?? liveQuote?.changePct ?? null);
   const analyst = profile.analyst;
   const low = analyst?.targetLow;
   const high = analyst?.targetHigh;
   const span = low != null && high != null && high !== low ? high - low : null;
+  const turnover = turnoverValue(profile);
+  const events = profile.eventsStatus === "ok"
+    ? profile.events.map((event) => [event.label, event.date, event.detail].filter(Boolean).join(" ")).join(" · ")
+    : profile.eventsStatus === "unavailable"
+      ? `UNAVAILABLE${profile.eventsReason ? ` · ${profile.eventsReason}` : ""}`
+      : "LOAD";
   return (
     <PanelFrame
       code="DES"
       title={`${profile.label} · ${profile.name}`}
-      extra={<span className="text-[10px] text-dim">{[profile.sector, profile.industry].filter(Boolean).join(" · ")}</span>}
+      extra={<span className="text-[10px] text-dim">{profile.currency}</span>}
       right={<SourcePill meta={profileMeta} />}
     >
-      <div className="grid gap-3 p-3 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid gap-3 p-3 lg:grid-cols-[1.4fr_1fr]" data-testid="company-view">
         <div className="space-y-3 lg:col-span-2">
-          <p className="copy line-clamp-3 text-[13px] leading-relaxed text-foreground/90">{profile.summary}</p>
-          <PeerTable peers={profile.peers} onPick={selectTicker} />
+          <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4 xl:grid-cols-7" data-testid="company-stats">
+            <Field label="Last" value={formatPrice(price, profile.assetClass)} />
+            <Field label="Change" value={formatPct(changePct, 2)} tone={toneOf(changePct)} />
+            <Field label="Turnover USD" value={turnover.text} title={turnover.title} />
+            <Field label="52w high" value={formatPrice(profile.week52High, profile.assetClass)} />
+            <Field label="52w low" value={formatPrice(profile.week52Low, profile.assetClass)} />
+            <Field label="Fwd P/E" value={profile.forwardPE == null ? "—" : `${profile.forwardPE.toFixed(2)}x`} />
+            <Field label="P/B" value={profile.priceToBook == null ? "—" : `${profile.priceToBook.toFixed(2)}x`} />
+          </div>
+          <div className="grid gap-2 text-[12px] md:grid-cols-2">
+            <div className="border border-border px-2 py-1.5" title={profile.eventsReason ?? ""}>
+              <div className="text-[9px] uppercase tracking-wide text-dim">Upcoming events</div>
+              <div className={profile.eventsStatus === "ok" ? "" : "text-amber"}>{events}</div>
+            </div>
+            <div className="border border-border px-2 py-1.5" title={profile.taxonomySource}>
+              <div className="text-[9px] uppercase tracking-wide text-dim">Classification</div>
+              <div>{profile.taxonomyLabel ?? "UNAVAILABLE"}</div>
+              <div className="text-[10px] text-dim">{profile.taxonomySource}</div>
+            </div>
+          </div>
+          <div>
+            <p className="copy text-[13px] leading-relaxed text-foreground/90">{profile.summary}</p>
+            {profile.descriptionSource ? <div className="mt-1 text-[10px] text-dim">Source: {profile.descriptionSource}</div> : null}
+          </div>
+          <PeerTable
+            peers={profile.peers}
+            status={profile.peersStatus}
+            reason={profile.peersReason}
+            source={profile.peersSource}
+            onPick={selectTicker}
+          />
         </div>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">

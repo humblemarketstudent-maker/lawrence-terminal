@@ -20,9 +20,13 @@ function MoveText({ row }: { row: DashboardRow }) {
 }
 
 function StripCell({ row, onOpen }: { row: DashboardRow; onOpen: (symbol: string) => void }) {
-  const detail = row.provider === "fred" ? `FRED ${row.symbol ?? ""}` : row.group;
+  const detail = row.provider === "fred"
+    ? `FRED ${row.symbol ?? ""}`
+    : row.assetClass === "future"
+      ? [row.group, row.symbol, row.basis].filter(Boolean).join(" · ")
+      : row.group;
   const session = row.session ? ` · ${row.session}` : "";
-  const title = [row.name, row.reason, row.previousClose != null ? `prev ${row.previousClose}` : ""].filter(Boolean).join(" · ");
+  const title = [row.name, row.symbol, row.basis, row.reason, row.previousClose != null ? `prev ${row.previousClose}` : ""].filter(Boolean).join(" · ");
   const body = (
     <>
       <div className="truncate text-[10px] uppercase tracking-wide text-muted">{row.name}</div>
