@@ -51,6 +51,44 @@ DEFAULT_WATCHLIST = [
     "^NSEI", "^BSESN", "^CRSLDX"
 ]
 
+# Asia benchmarks that already sit at the end of DEFAULT_WATCHLIST. They remain
+# in the book. Mover ranks use every other name and do not drop equities.
+ASIA_INDEX_SYMBOLS = (
+    "^302000-USD-STRD",
+    "^899903-USD-STRD",
+    "^899800-USD-STRD",
+    "^SPASIA50",
+    "^DJAT",
+    "^N225",
+    "^AXJO",
+    "^AORD",
+    "^AXKO",
+    "^NZ50",
+    "000001.SS",
+    "399001.SZ",
+    "000300.SS",
+    "399006.SZ",
+    "000688.SS",
+    "000905.SS",
+    "^HSCE",
+    "^HSI",
+    "HSTECH.HK",
+    "^KS11",
+    "^KQ11",
+    "^KS200",
+    "^TWII",
+    "^STI",
+    "^JKSE",
+    "^SET.BK",
+    "^KLSE",
+    "PSEI.PS",
+    "^VNINDEX.VN",
+    "ASEAN40.FGI",
+    "^NSEI",
+    "^BSESN",
+    "^CRSLDX",
+)
+
 WEI_SYMBOLS = [
     ("^GSPC", "S&P 500", "equity"),
     ("^IXIC", "Nasdaq Composite", "equity"),
@@ -116,7 +154,20 @@ CATALOG: list[dict[str, str]] = [
     {"symbol": "^N225", "name": "Nikkei 225", "assetClass": "index", "exchange": "INDEX", "currency": "JPY"},
     {"symbol": "^FTSE", "name": "FTSE 100", "assetClass": "index", "exchange": "INDEX", "currency": "GBP"},
     {"symbol": "^GDAXI", "name": "DAX", "assetClass": "index", "exchange": "INDEX", "currency": "EUR"},
+    {"symbol": "^NDX", "name": "NASDAQ 100", "assetClass": "index", "exchange": "INDEX", "currency": "USD"},
+    {"symbol": "^STOXX50E", "name": "Euro Stoxx 50", "assetClass": "index", "exchange": "INDEX", "currency": "EUR"},
+    {"symbol": "000300.SS", "name": "CSI 300", "assetClass": "index", "exchange": "INDEX", "currency": "CNY"},
+    {"symbol": "^KS11", "name": "KOSPI", "assetClass": "index", "exchange": "INDEX", "currency": "KRW"},
+    {"symbol": "^AXJO", "name": "S&P/ASX 200", "assetClass": "index", "exchange": "INDEX", "currency": "AUD"},
     {"symbol": "^TNX", "name": "US 10Y Yield", "assetClass": "rate", "exchange": "INDEX", "currency": "USD"},
+    {"symbol": "USDJPY=X", "name": "USD/JPY", "assetClass": "fx", "exchange": "FX", "currency": "JPY"},
+    {"symbol": "GBPUSD=X", "name": "GBP/USD", "assetClass": "fx", "exchange": "FX", "currency": "USD"},
+    {"symbol": "USDCHF=X", "name": "USD/CHF", "assetClass": "fx", "exchange": "FX", "currency": "CHF"},
+    {"symbol": "USDCAD=X", "name": "USD/CAD", "assetClass": "fx", "exchange": "FX", "currency": "CAD"},
+    {"symbol": "AUDUSD=X", "name": "AUD/USD", "assetClass": "fx", "exchange": "FX", "currency": "USD"},
+    {"symbol": "NZDUSD=X", "name": "NZD/USD", "assetClass": "fx", "exchange": "FX", "currency": "USD"},
+    {"symbol": "USDSEK=X", "name": "USD/SEK", "assetClass": "fx", "exchange": "FX", "currency": "SEK"},
+    {"symbol": "USDNOK=X", "name": "USD/NOK", "assetClass": "fx", "exchange": "FX", "currency": "NOK"},
     {"symbol": "DX-Y.NYB", "name": "US Dollar Index", "assetClass": "fx", "exchange": "INDEX", "currency": "USD"},
     {"symbol": "USDHKD=X", "name": "USD / HKD", "assetClass": "fx", "exchange": "FX", "currency": "HKD"},
     {"symbol": "EURUSD=X", "name": "EUR / USD", "assetClass": "fx", "exchange": "FX", "currency": "USD"},
@@ -165,6 +216,12 @@ def normalize_symbol(raw: str | None) -> str:
 
 def catalog_row(symbol: str) -> dict[str, str] | None:
     return _BY_SYMBOL.get(symbol)
+
+
+def equity_universe() -> list[str]:
+    """Cash names in the default book, preserving order. Asia indices stay on the book."""
+    blocked = set(ASIA_INDEX_SYMBOLS)
+    return [symbol for symbol in DEFAULT_WATCHLIST if symbol not in blocked]
 
 
 def classify(symbol: str, quote_type: str | None = None) -> str:

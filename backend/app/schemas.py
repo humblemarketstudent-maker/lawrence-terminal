@@ -304,6 +304,59 @@ class SymbolBundle(BaseModel):
     news: NewsSection
 
 
+class DashboardRow(BaseModel):
+    name: str
+    symbol: str | None = None
+    group: str
+    assetClass: str
+    price: float | None = None
+    change: float | None = None
+    changePct: float | None = None
+    previousClose: float | None = None
+    currency: str | None = None
+    session: str | None = None
+    status: Literal["ok", "unavailable", "pending"] = "pending"
+    reason: str | None = None
+    provider: str | None = None
+    link: bool = False
+
+
+class MoverRow(BaseModel):
+    symbol: str
+    name: str
+    label: str
+    price: float | None = None
+    change: float | None = None
+    changePct: float | None = None
+    volume: float | None = None
+    currency: str
+    assetClass: str = "equity"
+
+
+class Movers(BaseModel):
+    active: list[MoverRow] = Field(default_factory=list)
+    rise: list[MoverRow] = Field(default_factory=list)
+    drop: list[MoverRow] = Field(default_factory=list)
+    activity: Literal["volume"] = "volume"
+    activityNote: str = "Last session share volume. Names with no volume print are omitted."
+    changeNote: str = "Percent change versus the previous close."
+    universe: int = 0
+    attempted: int = 0
+    quoted: int = 0
+    ready: bool = False
+
+
+class DashboardBoard(BaseModel):
+    strip: list[DashboardRow]
+    movers: Movers
+    fx: list[DashboardRow]
+
+
+class DashboardSection(BaseModel):
+    data: DashboardBoard
+    meta: Meta
+
+
 class BootstrapResponse(BaseModel):
     quotes: QuoteSection
     news: NewsSection

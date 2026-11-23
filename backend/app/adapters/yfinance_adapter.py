@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-from app.bars import RANGE_TO_YF, last_session, scale_bar
+from app.bars import RANGE_TO_YF, last_session, scale_bar, scale_value
 from app.schemas import Quote
 from app.symbols import bloomberg_label, classify, currency_for, exchange_for, name_for
 from app.util import iso, num
@@ -105,6 +105,35 @@ def _quote_from_daily(symbol: str, daily: list[dict]) -> Quote | None:
     )
 
 
+def apply_previous_close(quote: Quote, previous: float | None, volume: float | None = None) -> Quote:
+    """Fill change versus a real previous close. Never invents the prior print."""
+    if quote.price is None or quote.previousClose is not None or previous is None or previous <= 0:
+        return quote
+    change = quote.price - previous
+    updates: dict = {
+        "previousClose": previous,
+        "change": change,
+        "changePct": change / previous * 100.0,
+    }
+    if quote.volume is None and volume:
+        updates["volume"] = volume
+    return quote.model_copy(update=updates)
+
+
+def _fill_thin_previous(symbol: str, quote: Quote) -> Quote:
+    """Yahoo sometimes returns a last price with only one daily bar (CSI 300)."""
+    if quote.previousClose is not None or quote.price is None:
+        return quote
+    try:
+        import yfinance as yf
+
+        previous = scale_value(symbol, num(yf.Ticker(symbol).fast_info.previous_close))
+    except Exception as exc:
+        log.info("previous close %s: %s", symbol, exc)
+        return quote
+    return apply_previous_close(quote, previous)
+
+
 def download_quotes(symbols: list[str]) -> list[Quote]:
     import yfinance as yf
 
@@ -137,6 +166,8 @@ def download_quotes(symbols: list[str]) -> list[Quote]:
                 except Exception as exc:
                     log.info("yfinance history fallback %s: %s", symbol, exc)
             quote = _quote_from_daily(symbol, daily)
+            if quote is not None and quote.previousClose is None:
+                quote = _fill_thin_previous(symbol, quote)
             if quote:
                 quotes.append(quote)
     return quotes

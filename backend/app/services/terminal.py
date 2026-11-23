@@ -10,6 +10,7 @@ from app.adapters.router import MarketRouter
 from app.adapters.yfinance_adapter import silence_yfinance
 from app.bars import ytd_return
 from app.book import get_book
+from app.dashboard import build_dashboard, market_symbols
 from app.cache import TTLCache
 from app.config import Settings, get_settings
 from app.schemas import (
@@ -35,7 +36,7 @@ from app.services.filings import fetch_filings
 from app.services.macro import build_eco, build_wei, fetch_fred
 from app.services.news import fetch_news
 from app.services.normalize import option_from_dict, peer_row, profile_from_parts, statements_from_blocks
-from app.symbols import WEI_SYMBOLS, bloomberg_label, normalize_symbol, search_catalog
+from app.symbols import WEI_SYMBOLS, bloomberg_label, equity_universe, normalize_symbol, search_catalog
 from app.util import iso
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ class Terminal:
         self.book = get_book()
         self.router = MarketRouter(self.settings)
         self.hot: set[str] = set(self.book.symbols_for_desk())
+        self.hot.update(market_symbols())
+        self._attempted: set[str] = set()
+        self._macro_done = False
         self.focus = "AAPL"
         self._tasks: dict[str, asyncio.Task] = {}
         self._quote_lock = asyncio.Lock()
@@ -125,17 +129,28 @@ class Terminal:
             warning = "One or more symbols did not return a quote."
         return QuoteSection(data=data, meta=self._meta(source, self.router.active_name, as_of, stale, warning))
 
+    def _live_quote(self, symbol: str) -> Quote | None:
+        hit = self.cache.get(f"q:{symbol}", allow_stale=True)
+        if not hit:
+            return None
+        quote = hit.value
+        if quote.sample or quote.status != "ok" or quote.price is None:
+            return None
+        return quote
+
     async def refresh_quotes(self, symbols: list[str]) -> None:
         if self.settings.disable_live:
             return
         symbols = _unique(symbols)
         if not symbols:
             return
-        # Cache each chunk so a long watchlist starts painting before the full book is fetched.
+        # Dashboard symbols first so the strip paints before the 462-name book finishes.
+        priority = set(market_symbols())
+        symbols = [symbol for symbol in symbols if symbol in priority] + [symbol for symbol in symbols if symbol not in priority]
         chunk_size = 40
-        for i in range(0, len(symbols), chunk_size):
-            chunk = symbols[i : i + chunk_size]
-            async with self._quote_lock:
+        async with self._quote_lock:
+            for i in range(0, len(symbols), chunk_size):
+                chunk = symbols[i : i + chunk_size]
                 try:
                     quotes = await self.router.get_quotes(chunk)
                 except Exception as exc:
@@ -144,6 +159,7 @@ class Terminal:
                 for quote in quotes:
                     merged = self._merge_quote(quote)
                     self.cache.set(f"q:{merged.symbol}", merged, self.settings.cache_ttl_quotes)
+                self._attempted = self._attempted.union(chunk)
 
     def _merge_quote(self, quote: Quote) -> Quote:
         fixture = self.book.quote(quote.symbol)
@@ -311,12 +327,13 @@ class Terminal:
     async def refresh_macro(self) -> None:
         if self.settings.disable_live:
             return
+        series = None
         try:
             series = await fetch_fred(self.settings.fred_api_key)
         except Exception as exc:
             log.warning("macro refresh failed: %s", exc)
-            return
-        if len(series) < 3:
+        self._macro_done = True
+        if not series or len(series) < 3:
             return
         self.cache.set("fred", series, self.settings.cache_ttl_macro)
         self.cache.set("fred-meta", self._meta("live", "fred" if not self.settings.fred_api_key else "fred-api", iso()), self.settings.cache_ttl_macro)
@@ -348,6 +365,26 @@ class Terminal:
 
         fred, meta = self._fred()
         return EcoSection(data=build_eco(fred, sample_macro=meta.source != "live"), meta=meta)
+
+    def dashboard_section(self):
+        quotes: dict[str, Quote] = {}
+        symbols = list(dict.fromkeys([*market_symbols(), *equity_universe()]))
+        for symbol in symbols:
+            quote = self._live_quote(symbol)
+            if quote is not None:
+                quotes[symbol] = quote
+        fred_hit = self.cache.get("fred", allow_stale=True)
+        # Quote TTL is 20s, shorter than one pass over the 462-name book, so a
+        # fresh live print is still the last close after the TTL flips. The
+        # pill stays LIVE for those prints instead of flashing STALE.
+        return build_dashboard(
+            quotes,
+            fred=fred_hit.value if fred_hit else None,
+            attempted=set(self._attempted),
+            macro_done=self._macro_done,
+            live=not self.settings.disable_live,
+            stale=False,
+        )
 
     async def refresh_symbol(self, symbol: str, range_key: str) -> None:
         await asyncio.gather(
@@ -452,9 +489,11 @@ class Terminal:
         if self.settings.disable_live:
             return
         await asyncio.sleep(0.4)
+        macro_task = asyncio.create_task(self.refresh_macro())
         await self.refresh_quotes(list(self.hot))
+        with suppress(Exception):
+            await macro_task
         await self.refresh_news()
-        await self.refresh_macro()
         await self.refresh_symbol("AAPL", "1Y")
         tick = 0
         while not self._stop.is_set():

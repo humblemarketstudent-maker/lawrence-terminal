@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BriefDialog, HelpDialog } from "./components/BriefDialog.tsx";
 import { CommandBar } from "./components/CommandBar.tsx";
+import { MarketDashboard } from "./components/MarketDashboard.tsx";
 import { NewsDrawer } from "./components/NewsWire.tsx";
 import { Workspace } from "./components/Workspace.tsx";
 import { TerminalProvider, useTerminal } from "./context/TerminalContext.tsx";
@@ -78,6 +79,7 @@ function Shell() {
       <Hotkeys />
       <Title />
       <CommandBar />
+      <MarketDashboard />
       <div className="min-h-0 flex-1">
         <Workspace />
       </div>

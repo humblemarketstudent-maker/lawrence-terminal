@@ -273,6 +273,54 @@ export interface Providers {
   cache: { entries: number; fresh: number };
 }
 
+export interface DashboardRow {
+  name: string;
+  symbol: string | null;
+  group: string;
+  assetClass: string;
+  price: number | null;
+  change: number | null;
+  changePct: number | null;
+  previousClose: number | null;
+  currency: string | null;
+  session: string | null;
+  status: "ok" | "unavailable" | "pending";
+  reason: string | null;
+  provider: string | null;
+  link: boolean;
+}
+
+export interface MoverRow {
+  symbol: string;
+  name: string;
+  label: string;
+  price: number | null;
+  change: number | null;
+  changePct: number | null;
+  volume: number | null;
+  currency: string;
+  assetClass: string;
+}
+
+export interface Movers {
+  active: MoverRow[];
+  rise: MoverRow[];
+  drop: MoverRow[];
+  activity: "volume";
+  activityNote: string;
+  changeNote: string;
+  universe: number;
+  attempted: number;
+  quoted: number;
+  ready: boolean;
+}
+
+export interface DashboardBoard {
+  strip: DashboardRow[];
+  movers: Movers;
+  fx: DashboardRow[];
+}
+
 export interface Bootstrap {
   quotes: Section<Quote[]>;
   news: Section<NewsItem[]>;
