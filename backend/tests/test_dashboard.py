@@ -234,6 +234,17 @@ def test_futures_change_must_match_the_published_previous_close():
     assert not is_future_symbol("NOVO-B.CO")
 
 
+def test_futures_row_keeps_the_last_price_when_the_prior_close_is_missing():
+    quote = _quote("ES=F", 7085.75, 2.17, 1000, asset="future")
+    quote = quote.model_copy(update={"previousClose": None, "change": None, "changePct": None})
+    section = build_dashboard({"ES=F": quote}, fred=None, attempted={"ES=F"}, macro_done=True, live=True)
+    row = next(item for item in section.data.strip if item.name == "E-mini S&P futures")
+    assert row.status == "ok"
+    assert row.price == 7085.75
+    assert row.change is None
+    assert row.basis is None
+
+
 def test_sgx_front_month_is_the_highest_volume_live_print():
     nov = _quote("SGP-X26.SI", 441.4, -0.72, 19676, asset="future")
     dec = _quote("SGP-Z26.SI", 441.6, -0.66, 2393, asset="future")

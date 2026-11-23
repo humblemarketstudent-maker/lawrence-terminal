@@ -236,7 +236,7 @@ def _from_quote(spec: _Spec, quote: Quote, *, symbol: str | None = None) -> Dash
         status="ok",
         provider="yfinance",
         link=spec.link and bool(chosen),
-        basis=spec.basis,
+        basis=spec.basis if quote.previousClose else None,
     )
 
 
@@ -250,7 +250,7 @@ def _market_row(spec: _Spec, quote: Quote | None, *, attempted: set[str], live: 
     if spec.symbol is None:
         return _blank(spec, "unavailable", spec.reason or "No public symbol")
     usable = _usable(quote)
-    if usable is not None and (spec.asset_class != "future" or usable.previousClose not in (None, 0)):
+    if usable is not None:
         return _from_quote(spec, usable)
     if not live:
         return _blank(spec, "unavailable", "Live feed off")
@@ -267,11 +267,11 @@ def _front_row(spec: _Spec, quotes: dict[str, Quote], *, attempted: set[str], li
     usable: list[Quote] = []
     for symbol in candidates:
         quote = _usable(quotes.get(symbol))
-        if quote is None or quote.previousClose in (None, 0):
+        if quote is None:
             continue
         usable.append(quote)
     if usable:
-        best = max(usable, key=lambda quote: (quote.volume or 0, quote.symbol))
+        best = max(usable, key=lambda quote: (quote.previousClose not in (None, 0), quote.volume or 0, quote.symbol))
         return _from_quote(spec, best, symbol=best.symbol)
     if not set(candidates).issubset(attempted):
         return _blank(spec, "pending", None)

@@ -13,6 +13,7 @@ import pandas as pd
 from app.bars import RANGE_TO_YF, last_session, scale_bar, scale_value
 from app.schemas import Quote
 from app.services.company import price_currency
+from app.services.yahoo_public import fill_missing, parse_quote_page, parse_timeseries_latest, peer_info_from_quote, quote_from_chart
 from app.symbols import bloomberg_label, classify, currency_for, exchange_for, name_for
 from app.util import iso, num
 
@@ -196,10 +197,32 @@ def future_quote_from_info(symbol: str, raw: dict | None) -> Quote | None:
     )
 
 
+def _chart_result(symbol: str) -> dict | None:
+    """v8 chart. This endpoint quotes without the crumb quoteSummary requires."""
+    try:
+        from curl_cffi import requests
+
+        response = requests.get(
+            "https://query1.finance.yahoo.com/v8/finance/chart/" + requests.utils.quote(symbol, safe=""),
+            params={"range": "10d", "interval": "1d", "includePrePost": "false"},
+            impersonate="chrome",
+            timeout=15,
+        )
+        payload = response.json()
+    except Exception as exc:
+        log.info("chart %s: %s", symbol, exc)
+        return None
+    result = ((payload.get("chart") or {}).get("result") or [None])[0]
+    return result if isinstance(result, dict) else None
+
+
 def _download_future_quotes(symbols: list[str]) -> list[Quote]:
     import yfinance as yf
 
     def one(symbol: str) -> Quote | None:
+        quote = quote_from_chart(symbol, _chart_result(symbol), futures_only=True)
+        if quote is not None:
+            return quote
         try:
             raw = yf.Ticker(symbol).info or {}
         except Exception as exc:
@@ -381,20 +404,63 @@ def _recommended_symbols(symbol: str) -> tuple[list[str], str | None]:
         return [], "Yahoo peer feed did not respond."
 
 
-def _peer_infos(symbols: list[str]) -> list[dict]:
-    import yfinance as yf
+def _quote_page(symbol: str) -> str:
+    try:
+        from curl_cffi import requests
 
-    def one(peer: str) -> dict | None:
-        try:
-            raw = yf.Ticker(peer).info or {}
-        except Exception as exc:
-            log.info("peer info %s: %s", peer, exc)
-            return None
-        info = _slim_info(raw)
-        info["symbol"] = peer
-        if num(info.get("regularMarketPrice")) is None:
-            return None
+        response = requests.get(
+            f"https://finance.yahoo.com/quote/{requests.utils.quote(symbol, safe='')}/",
+            impersonate="chrome",
+            timeout=20,
+        )
+        if response.status_code != 200:
+            log.info("quote page %s: %s", symbol, response.status_code)
+            return ""
+        return response.text or ""
+    except Exception as exc:
+        log.info("quote page %s: %s", symbol, exc)
+        return ""
+
+
+def _timeseries_measures(symbol: str) -> dict:
+    """Forward P/E and P/B from the same fundamentals series the statements use."""
+    try:
+        from curl_cffi import requests
+
+        now = int(time.time())
+        types = ",".join(["trailingForwardPeRatio", "trailingPbRatio", "trailingPeRatio"])
+        response = requests.get(
+            "https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/"
+            + requests.utils.quote(symbol, safe=""),
+            params={"symbol": symbol, "type": types, "period1": "1483228800", "period2": str(now)},
+            impersonate="chrome",
+            timeout=15,
+        )
+        if response.status_code != 200:
+            return {}
+        return parse_timeseries_latest(response.json())
+    except Exception as exc:
+        log.info("timeseries %s: %s", symbol, exc)
+        return {}
+
+
+def _enrich_info(symbol: str, info: dict) -> dict:
+    """Fill profile fields quoteSummary omitted. Existing values are kept."""
+    needed = ("longBusinessSummary", "sector", "industry", "forwardPE", "priceToBook")
+    if all(info.get(key) not in (None, "", []) for key in needed):
         return info
+    info = fill_missing(info, parse_quote_page(_quote_page(symbol)))
+    if info.get("forwardPE") in (None, "") or info.get("priceToBook") in (None, ""):
+        info = fill_missing(info, _timeseries_measures(symbol))
+    return info
+
+
+def _peer_infos(symbols: list[str]) -> list[dict]:
+    def one(peer: str) -> dict | None:
+        quote = quote_from_chart(peer, _chart_result(peer), futures_only=False)
+        if quote is None or quote.price is None:
+            return None
+        return peer_info_from_quote(quote, _timeseries_measures(peer))
 
     if not symbols:
         return []
@@ -442,15 +508,21 @@ def download_fundamentals(symbol: str) -> dict:
     import yfinance as yf
 
     ticker = yf.Ticker(symbol)
-    info = ticker.info or {}
+    try:
+        raw_info = ticker.info or {}
+    except Exception as exc:
+        log.info("info %s: %s", symbol, exc)
+        raw_info = {}
+    info = _enrich_info(symbol, _slim_info(raw_info))
     peers, peers_error = _recommended_symbols(symbol)
     return {
-        "info": _slim_info(info),
+        "info": info,
         "income": _statement_block(ticker.financials),
         "balance": _statement_block(ticker.balance_sheet),
         "cashflow": _statement_block(ticker.cashflow),
         "events": _calendar_payload(ticker),
         "peers": _peer_infos(peers),
+        "peerSymbols": peers,
         "peersError": peers_error,
         "fx": _fx_payload(info.get("currency") if isinstance(info.get("currency"), str) else None),
     }
