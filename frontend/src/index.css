@@ -1,0 +1,130 @@
+@import "tailwindcss";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+
+@theme {
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", sans-serif;
+  --color-background: #0b0e14;
+  --color-panel: #131722;
+  --color-border: #1e222d;
+  --color-amber: #ff9900;
+  --color-up: #00c853;
+  --color-down: #ff3d00;
+  --color-foreground: #e6e8ee;
+  --color-muted: #8b909c;
+  --color-dim: #5c6370;
+}
+
+:root {
+  color-scheme: dark;
+  --background: #0b0e14;
+  --foreground: #e6e8ee;
+  --card: #131722;
+  --border: #1e222d;
+  --primary: #ff9900;
+  --primary-foreground: #0b0e14;
+  --muted: #1a1f2b;
+  --muted-foreground: #8b909c;
+  --ring: #ff9900;
+  --radius: 2px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #0b0e14;
+  color: #e6e8ee;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+::selection {
+  background: rgba(255, 153, 0, 0.28);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 1px solid #ff9900;
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e222d;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff9900;
+}
+
+[data-separator] {
+  background: #1e222d;
+  position: relative;
+}
+
+[data-separator]:hover,
+[data-separator][data-separator-active] {
+  background: #ff9900;
+}
+
+.copy {
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+@keyframes flash-up {
+  from { background: rgba(0, 200, 83, 0.35); }
+  to { background: transparent; }
+}
+
+@keyframes flash-down {
+  from { background: rgba(255, 61, 0, 0.32); }
+  to { background: transparent; }
+}
+
+.flash-up {
+  animation: flash-up 700ms ease-out;
+}
+
+.flash-down {
+  animation: flash-down 700ms ease-out;
+}
+
+@keyframes breaking {
+  0% { background: rgba(255, 61, 0, 0.16); }
+  100% { background: transparent; }
+}
+
+.breaking-row {
+  animation: breaking 1.4s ease-out 2;
+}
+
+@keyframes loadbar {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(220%); }
+}
+
+.loadbar {
+  animation: loadbar 1s linear infinite;
+}

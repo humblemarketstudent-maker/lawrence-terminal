@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8741:8741"
+    environment:
+      DATA_PROVIDER: ${DATA_PROVIDER:-yfinance}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      FMP_API_KEY: ${FMP_API_KEY:-}
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      SEC_USER_AGENT: ${SEC_USER_AGENT:-APEX Terminal research@apex-terminal.local}
+      APEX_DISABLE_LIVE: ${APEX_DISABLE_LIVE:-false}
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "4317:4317"
+    environment:
+      API_PROXY: http://backend:8741
+    depends_on:
+      - backend
