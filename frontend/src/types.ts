@@ -79,6 +79,18 @@ export interface PeerRow {
   priceBook: number | null;
   revenueGrowth: number | null;
   ytd: number | null;
+  price: number | null;
+  change: number | null;
+  changePct: number | null;
+  currency: string | null;
+  status: "ok" | "unavailable";
+}
+
+export interface CompanyEvent {
+  kind: "earnings" | "ex-dividend" | "dividend";
+  label: string;
+  date: string;
+  detail: string | null;
 }
 
 export interface AnalystView {
@@ -120,6 +132,30 @@ export interface CompanyProfile {
   peers: PeerRow[];
   options: OptionSnapshot | null;
   price: number | null;
+  change: number | null;
+  changePct: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+  volume: number | null;
+  turnoverLocal: number | null;
+  turnoverCurrency: string | null;
+  turnoverUsd: number | null;
+  fxPair: string | null;
+  fxRate: number | null;
+  turnoverStatus: "ok" | "unavailable" | "pending";
+  turnoverReason: string | null;
+  forwardPE: number | null;
+  priceToBook: number | null;
+  taxonomyLabel: string | null;
+  taxonomySource: string;
+  gicsCode: string | null;
+  descriptionSource: string | null;
+  events: CompanyEvent[];
+  eventsStatus: "ok" | "unavailable" | "pending";
+  eventsReason: string | null;
+  peersStatus: "ok" | "unavailable" | "pending";
+  peersReason: string | null;
+  peersSource: string | null;
   marketCap: number | null;
   enterpriseValue: number | null;
   beta: number | null;
@@ -288,6 +324,7 @@ export interface DashboardRow {
   reason: string | null;
   provider: string | null;
   link: boolean;
+  basis: string | null;
 }
 
 export interface MoverRow {

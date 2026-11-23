@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from datetime import datetime, timezone
 
 from app.adapters.router import MarketRouter
 from app.adapters.yfinance_adapter import silence_yfinance
-from app.bars import ytd_return
 from app.book import get_book
 from app.dashboard import build_dashboard, market_symbols
 from app.cache import TTLCache
@@ -35,7 +35,8 @@ from app.services.brief import build_brief
 from app.services.filings import fetch_filings
 from app.services.macro import build_eco, build_wei, fetch_fred
 from app.services.news import fetch_news
-from app.services.normalize import option_from_dict, peer_row, profile_from_parts, statements_from_blocks
+from app.services.company import peer_rows, upcoming_events
+from app.services.normalize import option_from_dict, profile_from_parts, statements_from_blocks
 from app.symbols import WEI_SYMBOLS, bloomberg_label, equity_universe, normalize_symbol, search_catalog
 from app.util import iso
 
@@ -210,46 +211,64 @@ class Terminal:
         statements = statements_from_blocks(symbol, currency, payload.get("income"), payload.get("balance"), payload.get("cashflow"), sample=False)
         self.cache.set(f"s:{symbol}", StatementsSection(data=statements, meta=self._meta("live", "yfinance", iso())), self.settings.cache_ttl_fundamentals)
         quote = self.best_quote(symbol)
+        live_quote = quote if quote.status == "ok" and not quote.sample else None
         options_payload = None
         if classify_equity(symbol):
-            options_payload = await self.router.get_options(symbol, quote.price)
+            options_payload = await self.router.get_options(symbol, (live_quote or quote).price)
         options = option_from_dict(options_payload, sample=False)
-        peers = self._peer_rows(symbol)
+        peers = peer_rows(payload.get("peers"))
+        if peers:
+            peers_status, peers_reason, peers_source = "ok", None, "Yahoo Finance recommendations"
+        elif payload.get("peersError"):
+            peers_status, peers_reason, peers_source = "unavailable", str(payload.get("peersError")), None
+        else:
+            peers_status, peers_reason, peers_source = "unavailable", "Yahoo did not list peers for this symbol.", None
+        event_payload = payload.get("events") or {}
+        events = upcoming_events(event_payload.get("calendar"), event_payload.get("earnings"), datetime.now(timezone.utc).date())
+        if events:
+            events_status, events_reason = "ok", None
+        else:
+            events_status, events_reason = "unavailable", "No upcoming date in the Yahoo calendar."
         profile = profile_from_parts(
             symbol,
             info,
-            price=quote.price,
+            price=live_quote.price if live_quote else None,
+            quote=live_quote,
             peers=peers,
             statements=statements,
             options=options,
             sample=False,
+            fx=payload.get("fx") if isinstance(payload.get("fx"), dict) else None,
+            events=events,
+            events_status=events_status,
+            events_reason=events_reason,
+            peers_status=peers_status,
+            peers_reason=peers_reason,
+            peers_source=peers_source,
         )
         if profile.marketCap and quote.marketCap is None:
             self.cache.set(f"q:{symbol}", quote.model_copy(update={"marketCap": profile.marketCap}), self.settings.cache_ttl_quotes)
         self.cache.set(f"p:{symbol}", ProfileSection(data=profile, meta=self._meta("live", "yfinance", iso())), self.settings.cache_ttl_fundamentals)
 
-    def _peer_rows(self, symbol: str):
-        rows = []
-        for peer in self.book.peers(symbol):
-            live = self.cache.get(f"q:{peer.symbol}", allow_stale=True)
-            if live and live.value.marketCap:
-                peer = peer.model_copy(update={"marketCap": live.value.marketCap})
-            rows.append(peer)
-        if rows:
-            return rows
-        # Snapshot had no comps; still list the mapped names with whatever quote we can see.
-        from app.symbols import peers_for
-
-        for peer_symbol in peers_for(symbol):
-            quote = self.best_quote(peer_symbol)
-            if quote.status != "ok":
-                continue
-            rows.append(peer_row(peer_symbol, self.book.info(peer_symbol), quote.marketCap, ytd_return(self.book.daily(peer_symbol)), self.book.statements(peer_symbol)))
-        return rows
-
     def profile_section(self, symbol: str) -> ProfileSection:
         def factory():
             profile = self.book.profile(symbol)
+            if self.settings.disable_live:
+                profile = profile.model_copy(update={
+                    "peers": [],
+                    "peersStatus": "unavailable",
+                    "peersReason": "Live peer feed is off.",
+                    "peersSource": None,
+                    "events": [],
+                    "eventsStatus": "unavailable",
+                    "eventsReason": "Live calendar is off.",
+                    "turnoverLocal": None,
+                    "turnoverUsd": None,
+                    "turnoverStatus": "unavailable",
+                    "turnoverReason": "Live turnover is off.",
+                    "fxPair": None,
+                    "fxRate": None,
+                })
             return ProfileSection(data=profile, meta=self._meta("fixture", self.book.provider, self.book.as_of))
 
         return self._section(f"p:{symbol}", factory)
