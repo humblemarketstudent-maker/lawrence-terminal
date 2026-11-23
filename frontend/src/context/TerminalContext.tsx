@@ -58,12 +58,22 @@ const DEFAULT_WATCHLIST = [
     "2881.TW", "HPE", "STAN.L", "LONN.SW", "NUE", "OXY", "PCAR", "600000.SS", "6981.T", "EOAN.DE", "IDXX",
     "OKE", "SHL.DE", "0981.HK", "NA.TO", "SREN.SW", "DAL", "AZO", "ATD.TO", "002475.SZ", "HINDUNILVR.NS",
     "0728.HK", "CTVA", "GRMN", "ABX.TO", "Z74.SI", "AME", "ADSK", "CCEP.L", "373220.KS", "XEL", "3690.HK",
-    "ACA.PA", "GALD.SW", "0019.HK", "EBAY", "HEIA.AS", "HO.PA", "^302000-USD-STRD", "^899903-USD-STRD",
-    "^899800-USD-STRD", "^SPASIA50", "^DJAT", "^N225", "^AXJO", "^AORD", "^AXKO", "^NZ50", "000001.SS",
-    "399001.SZ", "000300.SS", "399006.SZ", "000688.SS", "000905.SS", "^HSCE", "^HSI", "HSTECH.HK", "^KS11",
-    "^KQ11", "^KS200", "^TWII", "^STI", "^JKSE", "^SET.BK", "^KLSE", "PSEI.PS", "^VNINDEX.VN", "ASEAN40.FGI",
-    "^NSEI", "^BSESN", "^CRSLDX"
+    "ACA.PA", "GALD.SW", "0019.HK", "EBAY", "HEIA.AS", "HO.PA",
 ];
+
+/** Index symbols stripped from the left-panel watchlist (seed + saved prefs). */
+const WATCHLIST_INDEX_SYMBOLS = new Set([
+  "^302000-USD-STRD", "^899903-USD-STRD", "^899800-USD-STRD", "^SPASIA50", "^DJAT", "^N225",
+  "^AXJO", "^AORD", "^AXKO", "^NZ50", "000001.SS", "399001.SZ", "000300.SS", "399006.SZ",
+  "000688.SS", "000905.SS", "^HSCE", "^HSI", "HSTECH.HK", "^KS11", "^KQ11", "^KS200", "^TWII",
+  "^STI", "^JKSE", "^SET.BK", "^KLSE", "PSEI.PS", "^VNINDEX.VN", "ASEAN40.FGI", "^NSEI",
+  "^BSESN", "^CRSLDX",
+]);
+
+function withoutWatchlistIndices(symbols: string[]): string[] {
+  return symbols.filter((symbol) => !WATCHLIST_INDEX_SYMBOLS.has(symbol) && !symbol.startsWith("^"));
+}
+
 const STORAGE = "apex-terminal-v1";
 
 interface Prefs {
@@ -82,11 +92,12 @@ function loadPrefs(): Prefs {
       const raw = localStorage.getItem(STORAGE);
       if (!raw) return base;
       const parsed = JSON.parse(raw) as Partial<Prefs>;
+      const saved = parsed.watchlist?.length ? withoutWatchlistIndices(parsed.watchlist) : [];
       return {
         ...base,
         ...parsed,
         func: parsed.func && funcs.includes(parsed.func) ? parsed.func : "DES",
-        watchlist: parsed.watchlist?.length ? parsed.watchlist : base.watchlist,
+        watchlist: saved.length ? saved : base.watchlist,
         layout: parsed.layout && [1, 2, 3, 4].includes(parsed.layout) ? parsed.layout : 3,
       };
   } catch {
