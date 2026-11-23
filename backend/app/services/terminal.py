@@ -221,6 +221,8 @@ class Terminal:
             peers_status, peers_reason, peers_source = "ok", None, "Yahoo Finance recommendations"
         elif payload.get("peersError"):
             peers_status, peers_reason, peers_source = "unavailable", str(payload.get("peersError")), None
+        elif payload.get("peerSymbols"):
+            peers_status, peers_reason, peers_source = "unavailable", "Yahoo listed peers but none returned a live price.", None
         else:
             peers_status, peers_reason, peers_source = "unavailable", "Yahoo did not list peers for this symbol.", None
         event_payload = payload.get("events") or {}
